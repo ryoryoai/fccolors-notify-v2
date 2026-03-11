@@ -1,0 +1,31 @@
+env:
+  line_channel_token: "LINE_CHANNEL_TOKEN"
+  admin_user_id: "ADMIN_USER_ID"
+  gemini_api_key: "GEMINI_API_KEY"
+  google_service_account_key: "GOOGLE_SERVICE_ACCOUNT_KEY"
+
+wordpress:
+  categories:
+    weekday: "http://www.fccolors.com/category/wd_schedule"
+    weekend: "http://www.fccolors.com/category/hd_schedule"
+
+grades:
+  "2017":
+    enabled: true
+    cohort: 12
+    line_group_env: "LINE_GROUP_2017"
+    calendar_id_env: "CALENDAR_ID_2017"
+
+notifications:
+  error:
+    enabled: true
+
+calendar:
+  enabled: true
+
+state:
+  path: "data/fccolors_v2.db"
+
+ai:
+  enabled: true
+  fallback_on_unparsed: true
