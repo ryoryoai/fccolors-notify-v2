@@ -68,6 +68,34 @@ def _normalize_grade_label(raw: str) -> list[str]:
     return [f"{grade_num}年"]
 
 
+def _extract_grade_list(text: str) -> list[str]:
+    compact = normalize_text(text).replace(" ", "")
+    if "園児" in compact:
+        grades = ["園児"]
+    else:
+        grades = []
+
+    new_prefix = "新" in compact
+    if new_prefix:
+        for num in re.findall(r"新?(\d)年", compact):
+            grades.extend(_normalize_grade_label(f"新{num}年"))
+        # Patterns like "新4,5,6年"
+        chained = re.search(r"新((?:\d,?)+)年", compact)
+        if chained:
+            for num in re.findall(r"\d", chained.group(1)):
+                label = _normalize_grade_label(f"新{num}年")
+                for item in label:
+                    if item not in grades:
+                        grades.append(item)
+        return list(dict.fromkeys(grades))
+
+    for num in re.findall(r"(\d)年", compact):
+        label = f"{num}年"
+        if label not in grades:
+            grades.append(label)
+    return grades
+
+
 def _split_rest(rest: str) -> tuple[str, str, str, str]:
     time_match = re.search(r"(\d{1,2}(?::\d{2})?\s*[-〜～]\s*\d{1,2}(?::\d{2})?)", rest)
     time_text = normalize_time(time_match.group(1)) if time_match else ""
@@ -144,11 +172,54 @@ def _parse_weekday_lines(article: SourceArticle, lines: list[str], default_month
         if course_match:
             current_weekday = course_match.group(1)
             continue
+        spring_match = re.match(r"(\d{1,2})日\s*[(（]([月火水木金土日祝])[)）]\s*(.*)", line)
+        if spring_match:
+            day, explicit_weekday, rest = spring_match.groups()
+            time_match = re.search(r"(\d{1,2}(?::\d{2})?\s*[-〜～]\s*\d{1,2}(?::\d{2})?)", rest)
+            time_text = normalize_time(time_match.group(1)) if time_match else ""
+            paren_match = re.search(r"[(（]([^()（）]+)[)）]", rest)
+            paren_text = paren_match.group(1) if paren_match else ""
+            location = ""
+            notes = ""
+            if paren_text:
+                location = normalize_location(paren_text.replace("17:00開門", "").strip())
+                location = re.sub(r"\d{1,2}:\d{2}開門", "", location).strip()
+                location = re.sub(r"\d{1,2}(?::\d{2})?\s*[-〜～]\s*\d{1,2}(?::\d{2})?", "", location).strip()
+            activity = "OFF" if "お休み" in rest or "OFF" in rest else "練習"
+            grade_labels = _extract_grade_list(rest)
+            if not location:
+                for candidate in ("北野G", "戸吹G", "北野グラウンド", "戸吹グラウンド", "プレイパーク", "あったかホール", "大和田市民センター"):
+                    if candidate in rest:
+                        location = normalize_location(candidate)
+                        break
+            if not grade_labels and current_weekday in WEEKDAY_GRADE_MAP:
+                grade_labels = WEEKDAY_GRADE_MAP[current_weekday]
+            events.append(
+                ScheduleEvent(
+                    source_url=article.url,
+                    source_title=article.title,
+                    category=article.category,
+                    date=f"{default_month}/{day}" if default_month else day,
+                    weekday=explicit_weekday,
+                    team="全員",
+                    location=location,
+                    activity=activity,
+                    time_text=time_text,
+                    notes=notes,
+                    grade_labels=grade_labels,
+                )
+            )
+            continue
         day_match = re.match(r"(\d{1,2})日\s*(.*)", line)
         if not day_match:
             continue
         day, rest = day_match.groups()
         location, activity, notes, time_text = _split_rest(rest)
+        if current_weekday in ("水", "木") and "(" in location and "年" in location:
+            grade_labels = _extract_grade_list(location)
+            location = normalize_location(location.split("(", 1)[0].strip())
+        else:
+            grade_labels = _extract_grades(rest, article.category, current_weekday)
         events.append(
             ScheduleEvent(
                 source_url=article.url,
@@ -161,7 +232,7 @@ def _parse_weekday_lines(article: SourceArticle, lines: list[str], default_month
                 activity=activity,
                 time_text=time_text,
                 notes=notes,
-                grade_labels=_extract_grades(rest, article.category, current_weekday),
+                grade_labels=grade_labels,
             )
         )
     return events

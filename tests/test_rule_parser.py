@@ -47,3 +47,27 @@ def test_parse_weekend_block_article() -> None:
     assert unresolved == []
     assert events[0].date == "3/1"
     assert events[0].grade_labels == ["2年"]
+
+
+def test_parse_weekday_spring_block_article() -> None:
+    article = SourceArticle(
+        category="weekday",
+        url="http://example.com/post-4",
+        title="3月平日予定",
+        content_html="",
+        content_text=(
+            "◎金曜日コース→園児.1.2.3年生\n"
+            "6日 北野G\n"
+            "【春休み練習】\n"
+            "24日(火)新1年生,園児練習(北野G17:00開門 17:30〜19:00)\n"
+            "26日(木)新4,5,6年練習(戸吹G)\n"
+        ),
+        content_hash="hash",
+    )
+    events, unresolved = parse_article(article)
+    assert unresolved == []
+    spring = [e for e in events if e.date == "3/24"][0]
+    assert spring.weekday == "火"
+    assert spring.time_text == "17:30-19:00"
+    assert spring.location == "北野グラウンド"
+    assert spring.grade_labels == ["園児"]
