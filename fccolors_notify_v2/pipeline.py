@@ -16,7 +16,13 @@ from .wordpress import fetch_category_articles
 logger = logging.getLogger(__name__)
 
 
-def run_pipeline(config: dict, *, dry_run: bool = False, category: str | None = None) -> list[RunResult]:
+def run_pipeline(
+    config: dict,
+    *,
+    dry_run: bool = False,
+    category: str | None = None,
+    reparse_all: bool = False,
+) -> list[RunResult]:
     state_path = config.get("state", {}).get("path", "data/fccolors_v2.db")
     store = StateStore(state_path)
     notifier = LineNotifier(config, dry_run=dry_run)
@@ -31,7 +37,7 @@ def run_pipeline(config: dict, *, dry_run: bool = False, category: str | None = 
             articles = fetch_category_articles(category_name, url)
             run_result.article_count = len(articles)
             for article in articles:
-                if not store.article_changed(article):
+                if not reparse_all and not store.article_changed(article):
                     continue
                 events, unresolved = parse_article(article)
                 if unresolved and config.get("ai", {}).get("enabled", True):

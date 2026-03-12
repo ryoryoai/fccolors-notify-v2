@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+from datetime import datetime
 
 from .models import ScheduleEvent, SourceArticle
 from .normalize import normalize_location, normalize_text, normalize_time
@@ -45,6 +46,28 @@ def _extract_team(text: str) -> str:
     return "全員"
 
 
+def _normalize_grade_label(raw: str) -> list[str]:
+    text = normalize_text(raw).replace(" ", "")
+    text = text.replace("生", "")
+    if text == "園児":
+        return ["園児"]
+    match = re.match(r"^(新)?(\d)年$", text)
+    if not match:
+        return []
+    is_new, grade = match.groups()
+    grade_num = int(grade)
+    if not is_new:
+        return [f"{grade_num}年"]
+
+    now = datetime.now()
+    before_april = now.month < 4
+    if before_april:
+        if grade_num == 1:
+            return ["園児"]
+        return [f"{grade_num - 1}年"]
+    return [f"{grade_num}年"]
+
+
 def _split_rest(rest: str) -> tuple[str, str, str, str]:
     time_match = re.search(r"(\d{1,2}(?::\d{2})?\s*[-〜～]\s*\d{1,2}(?::\d{2})?)", rest)
     time_text = normalize_time(time_match.group(1)) if time_match else ""
@@ -83,6 +106,33 @@ def _parse_weekend_line(
         time_text=time_text,
         notes=notes,
         grade_labels=_extract_grades(rest, article.category),
+    )
+
+
+def _parse_weekend_bullet_line(
+    article: SourceArticle,
+    line: str,
+    current_date: str,
+    current_weekday: str,
+) -> ScheduleEvent | None:
+    match = re.match(r"・\s*(新?\s*\d年生|園\s*児|園児)\s*(.*)", line)
+    if not match:
+        return None
+    grade_head, rest = match.groups()
+    location, activity, notes, time_text = _split_rest(rest)
+    grade_labels = _normalize_grade_label(grade_head)
+    return ScheduleEvent(
+        source_url=article.url,
+        source_title=article.title,
+        category=article.category,
+        date=current_date,
+        weekday=current_weekday,
+        team=_extract_team(rest),
+        location=location,
+        activity=activity,
+        time_text=time_text,
+        notes=notes,
+        grade_labels=grade_labels,
     )
 
 
@@ -128,7 +178,25 @@ def parse_article(article: SourceArticle) -> tuple[list[ScheduleEvent], list[str
     if article.category == "weekday":
         parsed = _parse_weekday_lines(article, lines, default_month)
     else:
+        current_date = ""
+        current_weekday = ""
         for line in lines:
+            if line.startswith("————————") or line.startswith("★"):
+                break
+            header_match = re.match(r"[◎○●]\s*(\d{1,2})\s*[(（]([月火水木金土日祝])[)）]?\s*(.*)", line)
+            if header_match:
+                day, current_weekday, rest = header_match.groups()
+                current_date = f"{default_month}/{day}" if default_month else day
+                if rest:
+                    event = _parse_weekend_line(article, line, default_month)
+                    if event is not None:
+                        parsed.append(event)
+                continue
+            if current_date and line.startswith("・"):
+                event = _parse_weekend_bullet_line(article, line, current_date, current_weekday)
+                if event is not None:
+                    parsed.append(event)
+                    continue
             event = _parse_weekend_line(article, line, default_month)
             if event is not None:
                 parsed.append(event)

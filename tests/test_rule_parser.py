@@ -31,3 +31,19 @@ def test_parse_weekend_article() -> None:
     assert len(events) == 1
     assert events[0].date == "2/3"
     assert events[0].location == "北野グラウンド"
+
+
+def test_parse_weekend_block_article() -> None:
+    article = SourceArticle(
+        category="weekend",
+        url="http://example.com/post-3",
+        title="3月休日予定",
+        content_html="",
+        content_text="◎1(日)\n・2年生 練習10-12 プレイパーク\n・1年生 OFF\n",
+        content_hash="hash",
+    )
+    events, unresolved = parse_article(article)
+    assert len(events) == 2
+    assert unresolved == []
+    assert events[0].date == "3/1"
+    assert events[0].grade_labels == ["2年"]

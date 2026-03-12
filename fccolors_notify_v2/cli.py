@@ -21,10 +21,16 @@ def main() -> int:
     parser.add_argument("--config", default="config.yml")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--category", choices=["weekday", "weekend"])
+    parser.add_argument("--reparse-all", action="store_true")
     args = parser.parse_args()
 
     config = load_config(args.config)
-    run_pipeline(config, dry_run=args.dry_run, category=args.category)
+    run_pipeline(
+        config,
+        dry_run=args.dry_run,
+        category=args.category,
+        reparse_all=args.reparse_all,
+    )
     return 0
 
 

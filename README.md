@@ -48,6 +48,7 @@ python -m fccolors_notify_v2.cli --dry-run
 python -m fccolors_notify_v2.cli
 python -m fccolors_notify_v2.cli --dry-run
 python -m fccolors_notify_v2.cli --category weekend --dry-run
+python -m fccolors_notify_v2.cli --category weekend --reparse-all --dry-run
 ```
 
 ## Environment variables
