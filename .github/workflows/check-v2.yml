@@ -1,12 +1,21 @@
 name: FC COLORS Notify V2
 
 on:
+  schedule:
+    - cron: "0 * * * *"
   workflow_dispatch:
     inputs:
       dry_run:
         description: "Dry run only"
         type: boolean
-        default: true
+        default: false
+      reparse_all:
+        description: "Force reparse all tracked articles"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
 
 jobs:
   check:
@@ -22,6 +31,9 @@ jobs:
           ARGS=""
           if [ "${{ inputs.dry_run }}" = "true" ]; then
             ARGS="--dry-run"
+          fi
+          if [ "${{ inputs.reparse_all }}" = "true" ]; then
+            ARGS="$ARGS --reparse-all"
           fi
           python -m fccolors_notify_v2.cli $ARGS
         env:
