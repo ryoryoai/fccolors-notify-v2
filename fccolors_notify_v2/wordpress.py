@@ -69,6 +69,22 @@ def compute_hash(value: str) -> str:
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
+def is_schedule_article(title: str, category: str) -> bool:
+    normalized = (title or "").strip()
+    if not normalized:
+        return False
+    blocked_tokens = ("募集", "体験会", "大募集", "選手クラス")
+    if any(token in normalized for token in blocked_tokens):
+        return False
+    if category == "weekday":
+        if "休日" in normalized:
+            return False
+        return "平日" in normalized
+    if "平日" in normalized:
+        return False
+    return "休日" in normalized
+
+
 def fetch_category_articles(category: str, category_url: str) -> list[SourceArticle]:
     category_html = fetch_html(category_url)
     result: list[SourceArticle] = []
@@ -80,11 +96,15 @@ def fetch_category_articles(category: str, category_url: str) -> list[SourceArti
             continue
         content_html = extract_entry_html(article_html)
         content_text = html_to_text(content_html)
+        title = extract_title(article_html)
+        if not is_schedule_article(title, category):
+            logger.info("Skipping non-schedule article: %s", title)
+            continue
         result.append(
             SourceArticle(
                 category=category,
                 url=url,
-                title=extract_title(article_html),
+                title=title,
                 content_html=content_html,
                 content_text=content_text,
                 content_hash=compute_hash(content_html),
