@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
+import time
 from urllib.parse import urljoin, urlparse, urlunparse
 
 import requests
@@ -13,6 +14,17 @@ from .normalize import html_to_text
 
 logger = logging.getLogger(__name__)
 TIMEOUT = 30
+FETCH_MAX_RETRIES = 3
+FETCH_RETRY_DELAY = 2
+TRANSIENT_STATUS_CODES = {429, 500, 502, 503, 504}
+
+
+class TransientFetchError(Exception):
+    pass
+
+
+class PermanentFetchError(Exception):
+    pass
 
 
 def normalize_url(url: str) -> str:
@@ -21,11 +33,40 @@ def normalize_url(url: str) -> str:
     return urlunparse(("http", parsed.netloc.lower(), path, "", "", ""))
 
 
+def _is_transient_request_exception(exc: Exception) -> bool:
+    if isinstance(exc, (requests.Timeout, requests.ConnectionError)):
+        return True
+    if isinstance(exc, requests.HTTPError) and exc.response is not None:
+        return exc.response.status_code in TRANSIENT_STATUS_CODES
+    return False
+
+
 def fetch_html(url: str) -> str:
-    response = requests.get(url, timeout=TIMEOUT)
-    response.raise_for_status()
-    response.encoding = "utf-8"
-    return response.text
+    last_error: Exception | None = None
+    for attempt in range(FETCH_MAX_RETRIES):
+        try:
+            response = requests.get(url, timeout=TIMEOUT)
+            response.raise_for_status()
+            response.encoding = "utf-8"
+            return response.text
+        except requests.RequestException as exc:
+            last_error = exc
+            if _is_transient_request_exception(exc) and attempt < FETCH_MAX_RETRIES - 1:
+                delay = FETCH_RETRY_DELAY * (2 ** attempt)
+                logger.warning(
+                    "Transient fetch error for %s (attempt %s/%s): %s; retrying in %ss",
+                    url,
+                    attempt + 1,
+                    FETCH_MAX_RETRIES,
+                    exc,
+                    delay,
+                )
+                time.sleep(delay)
+                continue
+            if _is_transient_request_exception(exc):
+                raise TransientFetchError(str(exc)) from exc
+            raise PermanentFetchError(str(exc)) from exc
+    raise TransientFetchError(str(last_error or "unknown fetch error"))
 
 
 def extract_article_links(category_html: str, base_url: str) -> list[str]:
@@ -91,7 +132,7 @@ def fetch_category_articles(category: str, category_url: str) -> list[SourceArti
     for url in extract_article_links(category_html, category_url):
         try:
             article_html = fetch_html(url)
-        except requests.RequestException as exc:
+        except (TransientFetchError, PermanentFetchError, requests.RequestException) as exc:
             logger.warning("Failed to fetch article %s: %s", url, exc)
             continue
         content_html = extract_entry_html(article_html)

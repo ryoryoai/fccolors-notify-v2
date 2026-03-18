@@ -11,7 +11,7 @@ from .line_notify import LineNotifier, format_diff_message
 from .models import RunResult
 from .rule_parser import parse_article
 from .state_store import StateStore
-from .wordpress import fetch_category_articles
+from .wordpress import PermanentFetchError, TransientFetchError, fetch_category_articles
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,18 @@ def run_pipeline(
         selected = {category: categories[category]} if category else categories
         for category_name, url in selected.items():
             run_result = RunResult(category=category_name)
-            articles = fetch_category_articles(category_name, url)
+            try:
+                articles = fetch_category_articles(category_name, url)
+            except TransientFetchError as exc:
+                logger.warning("Transient category fetch failure for %s: %s", category_name, exc)
+                run_result.soft_errors.append(f"{category_name}: {exc}")
+                results.append(run_result)
+                continue
+            except PermanentFetchError as exc:
+                logger.error("Permanent category fetch failure for %s: %s", category_name, exc)
+                run_result.soft_errors.append(f"{category_name}: {exc}")
+                results.append(run_result)
+                continue
             run_result.article_count = len(articles)
             for article in articles:
                 if not reparse_all and not store.article_changed(article):
