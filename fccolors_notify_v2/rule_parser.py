@@ -107,8 +107,42 @@ def _split_rest(rest: str) -> tuple[str, str, str, str]:
     activity = parts[1] if len(parts) >= 2 else ""
     notes = " / ".join(parts[2:]) if len(parts) >= 3 else ""
     if not activity and len(parts) == 1:
-        activity = ""
+        single = parts[0]
+        if single == "OFF":
+            activity = "OFF"
+            location = ""
+        else:
+            tokens = single.split()
+            if len(tokens) >= 3 and tokens[-1] == "※" and _looks_like_location(tokens[-2]):
+                location = normalize_location(tokens[-2])
+                activity = " ".join(tokens[:-2]).strip()
+                notes = "※"
+            elif len(tokens) >= 2 and _looks_like_location(tokens[-1]):
+                location = normalize_location(tokens[-1])
+                activity = " ".join(tokens[:-1]).strip()
+            else:
+                location = ""
+                activity = single
     return location, activity, notes, time_text
+
+
+def _looks_like_location(value: str) -> bool:
+    candidates = ("G", "小", "中", "高", "公園", "パーク", "ホール", "センター")
+    return any(token in value for token in candidates)
+
+
+def _split_team_segments(rest: str) -> list[tuple[str, str]]:
+    parts = [part.strip() for part in rest.split(" / ") if part.strip()]
+    if len(parts) <= 1:
+        return [("", rest)]
+    segments: list[tuple[str, str]] = []
+    for part in parts:
+        match = re.match(r"^([12])\s*(.*)$", part)
+        if not match:
+            return [("", rest)]
+        team, body = match.groups()
+        segments.append((team, body.strip()))
+    return segments
 
 
 def _parse_weekend_line(
@@ -137,31 +171,36 @@ def _parse_weekend_line(
     )
 
 
-def _parse_weekend_bullet_line(
+def _parse_weekend_bullet_events(
     article: SourceArticle,
     line: str,
     current_date: str,
     current_weekday: str,
-) -> ScheduleEvent | None:
+) -> list[ScheduleEvent]:
     match = re.match(r"・\s*(新?\s*\d年生|園\s*児|園児)\s*(.*)", line)
     if not match:
-        return None
+        return []
     grade_head, rest = match.groups()
-    location, activity, notes, time_text = _split_rest(rest)
     grade_labels = _normalize_grade_label(grade_head)
-    return ScheduleEvent(
-        source_url=article.url,
-        source_title=article.title,
-        category=article.category,
-        date=current_date,
-        weekday=current_weekday,
-        team=_extract_team(rest),
-        location=location,
-        activity=activity,
-        time_text=time_text,
-        notes=notes,
-        grade_labels=grade_labels,
-    )
+    events: list[ScheduleEvent] = []
+    for segment_team, segment_rest in _split_team_segments(rest):
+        location, activity, notes, time_text = _split_rest(segment_rest)
+        events.append(
+            ScheduleEvent(
+                source_url=article.url,
+                source_title=article.title,
+                category=article.category,
+                date=current_date,
+                weekday=current_weekday,
+                team=segment_team or _extract_team(segment_rest),
+                location=location,
+                activity=activity,
+                time_text=time_text,
+                notes=notes,
+                grade_labels=grade_labels,
+            )
+        )
+    return events
 
 
 def _parse_weekday_lines(article: SourceArticle, lines: list[str], default_month: str) -> list[ScheduleEvent]:
@@ -264,9 +303,9 @@ def parse_article(article: SourceArticle) -> tuple[list[ScheduleEvent], list[str
                         parsed.append(event)
                 continue
             if current_date and line.startswith("・"):
-                event = _parse_weekend_bullet_line(article, line, current_date, current_weekday)
-                if event is not None:
-                    parsed.append(event)
+                events = _parse_weekend_bullet_events(article, line, current_date, current_weekday)
+                if events:
+                    parsed.extend(events)
                     continue
             event = _parse_weekend_line(article, line, default_month)
             if event is not None:
