@@ -46,7 +46,14 @@ def _extract_team(text: str) -> str:
     return "全員"
 
 
-def _normalize_grade_label(raw: str) -> list[str]:
+def _is_before_april_context(month_hint: str = "") -> bool:
+    if month_hint.isdigit():
+        return int(month_hint) < 4
+    now = datetime.now()
+    return now.month < 4
+
+
+def _normalize_grade_label(raw: str, month_hint: str = "") -> list[str]:
     text = normalize_text(raw).replace(" ", "")
     text = text.replace("生", "")
     if text == "園児":
@@ -59,8 +66,7 @@ def _normalize_grade_label(raw: str) -> list[str]:
     if not is_new:
         return [f"{grade_num}年"]
 
-    now = datetime.now()
-    before_april = now.month < 4
+    before_april = _is_before_april_context(month_hint)
     if before_april:
         if grade_num == 1:
             return ["園児"]
@@ -68,7 +74,7 @@ def _normalize_grade_label(raw: str) -> list[str]:
     return [f"{grade_num}年"]
 
 
-def _extract_grade_list(text: str) -> list[str]:
+def _extract_grade_list(text: str, month_hint: str = "") -> list[str]:
     compact = normalize_text(text).replace(" ", "")
     if "園児" in compact:
         grades = ["園児"]
@@ -78,12 +84,12 @@ def _extract_grade_list(text: str) -> list[str]:
     new_prefix = "新" in compact
     if new_prefix:
         for num in re.findall(r"新?(\d)年", compact):
-            grades.extend(_normalize_grade_label(f"新{num}年"))
+            grades.extend(_normalize_grade_label(f"新{num}年", month_hint))
         # Patterns like "新4,5,6年"
         chained = re.search(r"新((?:\d,?)+)年", compact)
         if chained:
             for num in re.findall(r"\d", chained.group(1)):
-                label = _normalize_grade_label(f"新{num}年")
+                label = _normalize_grade_label(f"新{num}年", month_hint)
                 for item in label:
                     if item not in grades:
                         grades.append(item)
@@ -176,12 +182,13 @@ def _parse_weekend_bullet_events(
     line: str,
     current_date: str,
     current_weekday: str,
+    default_month: str,
 ) -> list[ScheduleEvent]:
     match = re.match(r"・\s*(新?\s*\d年生|園\s*児|園児)\s*(.*)", line)
     if not match:
         return []
     grade_head, rest = match.groups()
-    grade_labels = _normalize_grade_label(grade_head)
+    grade_labels = _normalize_grade_label(grade_head, default_month)
     events: list[ScheduleEvent] = []
     for segment_team, segment_rest in _split_team_segments(rest):
         location, activity, notes, time_text = _split_rest(segment_rest)
@@ -225,7 +232,7 @@ def _parse_weekday_lines(article: SourceArticle, lines: list[str], default_month
                 location = re.sub(r"\d{1,2}:\d{2}開門", "", location).strip()
                 location = re.sub(r"\d{1,2}(?::\d{2})?\s*[-〜～]\s*\d{1,2}(?::\d{2})?", "", location).strip()
             activity = "OFF" if "お休み" in rest or "OFF" in rest else "練習"
-            grade_labels = _extract_grade_list(rest)
+            grade_labels = _extract_grade_list(rest, default_month)
             if not location:
                 for candidate in ("北野G", "戸吹G", "北野グラウンド", "戸吹グラウンド", "プレイパーク", "あったかホール", "大和田市民センター"):
                     if candidate in rest:
@@ -255,7 +262,7 @@ def _parse_weekday_lines(article: SourceArticle, lines: list[str], default_month
         day, rest = day_match.groups()
         location, activity, notes, time_text = _split_rest(rest)
         if current_weekday in ("水", "木") and "(" in location and "年" in location:
-            grade_labels = _extract_grade_list(location)
+            grade_labels = _extract_grade_list(location, default_month)
             location = normalize_location(location.split("(", 1)[0].strip())
         else:
             grade_labels = _extract_grades(rest, article.category, current_weekday)
@@ -303,7 +310,13 @@ def parse_article(article: SourceArticle) -> tuple[list[ScheduleEvent], list[str
                         parsed.append(event)
                 continue
             if current_date and line.startswith("・"):
-                events = _parse_weekend_bullet_events(article, line, current_date, current_weekday)
+                events = _parse_weekend_bullet_events(
+                    article,
+                    line,
+                    current_date,
+                    current_weekday,
+                    default_month,
+                )
                 if events:
                     parsed.extend(events)
                     continue
