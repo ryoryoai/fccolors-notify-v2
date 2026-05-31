@@ -14,7 +14,7 @@ LOCATION_ALIASES = {
 
 
 def html_to_text(html: str) -> str:
-    soup = BeautifulSoup(html, "html.parser")
+    soup = BeautifulSoup(html or "", "html.parser")
     text = soup.get_text(separator="\n", strip=True)
     return normalize_text(text)
 
