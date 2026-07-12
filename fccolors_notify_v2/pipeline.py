@@ -48,25 +48,42 @@ def run_pipeline(
                 continue
             run_result.article_count = len(articles)
             for article in articles:
-                if not reparse_all and not store.article_changed(article):
-                    continue
-                events, unresolved = parse_article(article)
-                if unresolved and config.get("ai", {}).get("enabled", True):
-                    events.extend(parse_unresolved_lines(article, unresolved, config))
-                old_events = store.get_events_for_source(article.url)
-                diff = diff_events(old_events, events)
-                if diff.has_changes():
-                    _deliver_changes(config, notifier, calendar_sync, article, diff, dry_run, run_result)
-                store.save_article(article)
-                store.replace_events_for_source(article.url, events)
-                run_result.parsed_events += len(events)
+                try:
+                    if not reparse_all and not store.article_changed(article):
+                        continue
+                    events, unresolved = parse_article(article)
+                    if unresolved and config.get("ai", {}).get("enabled", True):
+                        events.extend(parse_unresolved_lines(article, unresolved, config))
+                    old_events = store.get_events_for_source(article.url)
+                    diff = diff_events(old_events, events)
+                    if diff.has_changes():
+                        _deliver_changes(config, notifier, calendar_sync, article, diff, dry_run, run_result)
+                    store.save_article(article)
+                    store.replace_events_for_source(article.url, events)
+                    run_result.parsed_events += len(events)
+                except Exception as exc:
+                    # One malformed article (or AI response) must not abort the whole
+                    # scheduled run and black out notifications for every other post.
+                    logger.exception("Failed to process article %s", article.url)
+                    run_result.soft_errors.append(f"{article.title}: {exc}")
+                    notifier.send_error(_format_error(f"記事処理中 ({article.title})", exc))
             results.append(run_result)
     except Exception as exc:
-        notifier.send_error(f"【FC COLORS V2】エラー\n{datetime.now():%Y-%m-%d %H:%M:%S}\n{exc}")
+        logger.exception("Pipeline run failed")
+        notifier.send_error(_format_error("スケジュール取得中", exc))
         raise
     finally:
         store.close()
     return results
+
+
+def _format_error(stage: str, exc: Exception) -> str:
+    return (
+        "【FC COLORS V2】⚠️ エラー発生\n\n"
+        f"{stage}にエラーが発生しました。\n\n"
+        f"詳細: {type(exc).__name__}: {exc}\n"
+        f"時刻: {datetime.now():%Y-%m-%d %H:%M:%S}"
+    )
 
 
 def _deliver_changes(config: dict, notifier: LineNotifier, calendar_sync: CalendarSync, article, diff, dry_run: bool, result: RunResult) -> None:

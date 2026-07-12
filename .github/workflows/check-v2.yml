@@ -1,8 +1,9 @@
 name: FC COLORS Notify V2
 
 on:
-  schedule:
-    - cron: "0 */6 * * *"
+  # Scheduled runs are disabled. Re-enable by uncommenting the cron below.
+  # schedule:
+  #   - cron: "0 */6 * * *"
   workflow_dispatch:
     inputs:
       dry_run:
